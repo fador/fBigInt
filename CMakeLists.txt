@@ -1,7 +1,12 @@
 cmake_minimum_required(VERSION 3.10)
-project(FBigInt)
+project(FBigInt VERSION 0.1.0)
 
 set(CMAKE_CXX_STANDARD 11)
+
+# Set the default build type to Release
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
 
 # Create a variable containing all your sources
 set(SOURCES
