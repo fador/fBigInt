@@ -97,6 +97,13 @@ public:
     if (rhs == 0 || *this == 0)
       return 0;
 
+    // ToDo: Use Karatsuba multiplication for large numbers    
+    if (false && digits.size() > 16 && rhs.digits.size() > 16)
+    {
+      std::cout << "Karatsuba multiplication" << std::endl;
+      return karatsubaMultiply(rhs);
+    }
+
     BigInt result;
     result.digits.resize(digits.size() + rhs.digits.size());
 
@@ -113,6 +120,92 @@ public:
       }
     }
 
+    while (result.digits.size() > 1 && result.digits.back() == 0)
+    {
+      result.digits.pop_back();
+    }
+
+    // Handle result sign
+    if (sign != rhs.sign)
+    {
+      result.sign = true;
+    }
+    else
+    {
+      result.sign = false;
+    }
+
+    return result;
+  }
+
+  BigInt karatsubaMultiply(const BigInt &rhs) const
+  {
+    // Compute the size of the numbers
+    size_t n = std::max(digits.size(), rhs.digits.size());
+
+    // Base case: if the numbers are small enough, use the naive algorithm
+    /*if (n < 16)
+    {
+      return *this * rhs;
+    }*/
+
+    // Split the numbers into two halves
+    size_t k = n / 2;
+    BigInt high1, low1, high2, low2;
+    if (digits.size() > k)
+    {
+      high1.digits = std::vector<int8_t>(digits.begin(), digits.end() - k);
+      low1.digits = std::vector<int8_t>(digits.end() - k, digits.end());
+    }
+    else
+    {
+      high1 = 0;
+      low1 = *this;
+    }
+    if (rhs.digits.size() > k)
+    {
+      high2.digits = std::vector<int8_t>(rhs.digits.begin(), rhs.digits.end() - k);
+      low2.digits = std::vector<int8_t>(rhs.digits.end() - k, rhs.digits.end());
+    }
+    else
+    {
+      high2 = 0;
+      low2 = rhs;
+    }
+
+    // Compute the three intermediate products
+    BigInt z0 = low1 * low2;
+    BigInt z1 = (low1 + high1) * (low2 + high2);
+    BigInt z2 = high1 * high2;
+
+    // Compute the result using the three intermediate products
+    BigInt result = z2;
+    result.digits.resize(2 * k + z1.digits.size());
+    for (size_t i = 0; i < z1.digits.size(); ++i)
+    {
+      result.digits[k + i] += z1.digits[i];
+    }
+    for (size_t i = 0; i < z0.digits.size(); ++i)
+    {
+      result.digits[i] += z0.digits[i];
+    }
+    for (size_t i = 0; i < z2.digits.size(); ++i)
+    {
+      result.digits[2 * k + i] -= z2.digits[i];
+    }
+    for (size_t i = 0; i < result.digits.size() - 1; ++i)
+    {
+      if (result.digits[i] < 0)
+      {
+        result.digits[i] += 10;
+        result.digits[i + 1] -= 1;
+      }
+      else if (result.digits[i] >= 10)
+      {
+        result.digits[i] -= 10;
+        result.digits[i + 1] += 1;
+      }
+    }
     while (result.digits.size() > 1 && result.digits.back() == 0)
     {
       result.digits.pop_back();
@@ -957,9 +1050,12 @@ public:
     BigInt result = 1;
     while (exp > 0)
     {
-      if (!exp.isEven())
-        result = (result * base) % modulus;
-      base = (base * base) % modulus;
+      if (!exp.isEven()) {        
+        result = (result * base);
+        if (result >= modulus) result %= modulus;
+      }
+      base = (base * base);
+      if (base >= modulus) base %= modulus;
       exp >>= 1;
     }
     return result;
@@ -1021,6 +1117,7 @@ private:
   std::vector<int8_t> digits; // digits are stored in reverse order
 };
 
+// Output to stream as string.
 std::ostream &operator<<(std::ostream &os, const BigInt &bi)
 {
   if (bi.sign)
