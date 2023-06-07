@@ -60,7 +60,7 @@ This will build the library and install the header file and the shared library t
 
 ## License
 
-The fBigInt library is licensed under the permissive ISC License. See the `LICENSE` file for details.
+The fBigInt library is licensed under the permissive BSD 2-Clause License. See the `LICENSE` file for details.
 
 ## Contributing
 

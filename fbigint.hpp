@@ -1,5 +1,5 @@
 /*
-  Permissive ISC License - see LICENSE file for details
+  Permissive BSD 2-Clause License - see LICENSE file for details
   by Marko 'Fador' Viitanen 2023
 */
 
