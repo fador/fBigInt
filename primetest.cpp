@@ -153,9 +153,30 @@ bool tests() {
   assert(BigInt("-7006652") / BigInt("1234") == BigInt("-5678"));
   assert(BigInt("7006652") / BigInt("-1234") == BigInt("-5678"));
 
+  // Test ++ and -- operator sign changes
+  {
+    BigInt a = 1;
+    BigInt b = -1;
+
+    a--;  // decrement a to 0
+    assert(a == BigInt("0"));
+    a--;  // decrement a to -1
+    assert(a == BigInt("-1"));
+
+    b++;  // increment b to 0
+    assert(b == BigInt("0"));
+    b++;  // increment b to 1
+    assert(b == BigInt("1"));
+
+    BigInt c = 0;
+    c--;  // decrement c to -1
+    assert(c == BigInt("-1"));
+    c++;  // increment c back to 0
+    assert(c == BigInt("0"));
+  }
 
   // Test modInverse()
-  //testModInverse();
+  testModInverse();
 
   BigInt dd = BigInt::modInverse(BigInt("65537"), BigInt("91273218666296797593635512882458304367850604767639817636318203449771530310880"));
   BigInt d_real("34654492883004458771723338984912491990558411255217382276340172062204021983393");// = BigInt::modInverse(e, phi);
