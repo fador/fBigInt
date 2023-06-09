@@ -125,15 +125,8 @@ public:
       result.digits.pop_back();
     }
 
-    // Handle result sign
-    if (sign != rhs.sign)
-    {
-      result.sign = true;
-    }
-    else
-    {
-      result.sign = false;
-    }
+    // Handle result sign, if either of the operands is negative, result is negative
+    result.sign = (sign != rhs.sign);
 
     return result;
   }
@@ -233,6 +226,9 @@ public:
   bool operator==(const BigInt &rhs) const
   {
 
+    // If the signs are different, then the numbers are different
+    if (sign != rhs.sign) return false;
+
     if (digits.size() != rhs.digits.size())
     {
       return false;
@@ -245,9 +241,7 @@ public:
       }
     }
 
-    if (sign != rhs.sign)
-      return false;
-
+    // If we get here, then the numbers are equal
     return true;
   }
 
@@ -262,7 +256,7 @@ public:
       if ((*this).abs() < rhs.abs())
       {
 
-        // If this is negative, then we need to subtract this from
+        // If *this is negative, then we need to subtract *this from rhs and set the sign to positive
         if (sign)
         {
           BigInt temp = rhs.abs();
@@ -270,7 +264,7 @@ public:
           *this = temp;
           sign = false;
         }
-        else
+        else // if *this is positive
         {
           *this = rhs.abs() - (*this).abs();
           sign = !sign;
@@ -303,18 +297,18 @@ public:
       {
         digits.push_back(0);
       }
-      // std::cout << "Before: " << digits[i] << "+" << (i < rhs.digits.size() ?rhs.digits[i]:0) << std::endl;
+      // Add the two digits together, plus the carry, limit to rhs size
       digits[i] += carry + (i < rhs.digits.size() ? rhs.digits[i] : 0);
-      // std::cout << "After: "<< digits[i] << std::endl;
-      carry = (digits[i] >= 10);
-      // std::cout << "Carry: " << carry << std::endl;
+      
+      // If the digit is greater than 10, then we need to carry the rest
+      carry = (digits[i] >= 10);      
 
       if (carry)
       {
         digits[i] -= 10;
       }
     }
-    // std::cout << "Out: " << *this << std::endl;
+    
     return *this;
   }
 
@@ -383,6 +377,7 @@ public:
       divisor <<= 1;
       shift++;
     }
+    // We already went one too far, so shift back
     if (shift > 0)
     {
       shift--;
@@ -391,45 +386,45 @@ public:
     // Restore divisor
     divisor = rhs.abs();
 
+    // Our current value is the divisor * 2^shift
     BigInt current = divisor * (BigInt(1) << shift);
 
+    // Currently we have fit the divisor into the dividend 2^shift times
     BigInt count = BigInt(1) << shift;
 
     // std::cout << "Count: " << count << std::endl;
 
+    // Start testing from the highest power of 2 of the divisor that is less than the dividend
     int testShift = shift;
-
-    bool improved = true;
 
     for (int i = testShift; i >= 0; i--)
     {
       BigInt test = divisor * (BigInt(1) << i);
-
-      // std::cout << "test: " << test << " current: " << current << std::endl;
+      
+      // If we canfit the test into the current value
+      // then add it to the current value and add 2^i to the count
       if (current + test < dividend)
       {
-
         current += test;
         count += (BigInt(1) << i);
       }
     }
 
+    // Finally, add divisor to current value until we reach the dividend
     while (current <= dividend)
     {
       current += divisor;
       count++;
     }
 
+    // We went one too far, so subtract one
     if (count > 0)
     {
       count--;
     }
 
     // Handle signs, same signs result in positive, different signs result in negative
-    if (sign != rhs.sign)
-    {
-      count.sign = true;
-    }
+    count.sign = (sign != rhs.sign);
 
     return count;
   }
@@ -467,12 +462,11 @@ public:
 
   BigInt &operator++()
   {
-
+    // Adding one to a negative number is the same as subtracting one from the absolute value
     if (sign)
-    {
-      sign = false;
-      *this -= 1;
-      sign = true;
+    {      
+      *this = (*this).abs()-1;
+      if(*this != 0) sign = true; // Make sure the sign is still negative (or we reached zero, which is positive)
       return *this;
     }
 
@@ -495,15 +489,15 @@ public:
   BigInt operator++(int)
   {
 
-    if (sign)
-    {
-      sign = false;
-      *this -= 1;
-      sign = true;
-      return *this;
-    }
-
     BigInt temp = *this;
+
+    // Adding one to a negative number is the same as subtracting one from the absolute value
+    if (sign)
+    {      
+      *this = (*this).abs()-1;
+      if(*this != 0) sign = true; // Make sure the sign is still negative (or we reached zero, which is positive)
+      return temp;
+    }
 
     for (size_t i = 0; i < digits.size(); ++i)
     {
@@ -523,7 +517,7 @@ public:
 
   bool operator>=(const BigInt &rhs) const
   {
-
+    // If the sign is different, then the bigger number is the one with the positive sign
     if (sign != rhs.sign)
     {
       return !sign;
@@ -543,6 +537,7 @@ public:
     return true; // They are equal
   }
 
+  // Absolute value is just the same number with a positive sign
   BigInt abs() const
   {
     BigInt result = *this;
@@ -570,6 +565,7 @@ public:
     {
       return !sign;
     }
+    // If both numbers are negative, then the bigger number is the one with the smaller absolute value
     if (sign && rhs.sign)
     {
       return rhs.abs() >= abs();
@@ -623,6 +619,7 @@ public:
   // Perform right shift operation
   BigInt &operator>>=(int shift)
   {
+    // If the shift is negative, then perform a left shift
     if (shift < 0)
     {
       return (*this) <<= (-shift);
@@ -632,11 +629,7 @@ public:
       int carry = 0;
       for (size_t j = digits.size(); j > 0; j--)
       {
-        // std::cout << "j: " << j << std::endl;
         int temp = digits[j - 1] + carry * BASE;
-        // std::cout << "temp: " << temp << std::endl;
-        // std::cout << "carry: " << carry << std::endl;
-        // std::cout << "digits[j]: " << digits[j-1] << std::endl;
         digits[j - 1] = temp / 2;
         carry = temp % 2;
       }
@@ -758,20 +751,22 @@ public:
   BigInt &operator--()
   {
 
+    // When the number is negative, decrementing it means increasing its absolute value
     if (sign)
-    {
-      sign = false;
-      *this += 1;
+    {      
+      *this = (*this).abs()+1;
       sign = true;
       return *this;
     }
+    // When the number is zero, decrementing it means making it -1
     if (*this == 0)
     {
-      sign = true;
       *this += 1;
+      sign = true;      
       return *this;
     }
 
+    // Propagate the decrement operation from the least significant digit to the most significant digit
     for (size_t i = 0; i < digits.size(); ++i)
     {
       if (digits[i]--)
@@ -790,19 +785,21 @@ public:
 
   BigInt operator--(int)
   {
-
+    // Store the original value to return it later
     BigInt result = *this;
+
+    // When the number is negative, decrementing it means increasing its absolute value
     if (sign)
-    {
-      sign = false;
-      *this += 1;
+    {      
+      *this = (*this).abs()+1;
       sign = true;
-      return *this;
+      return result;
     }
-    if (result == 0)
+    // When the number is zero, decrementing it means making it -1
+    if (*this == 0)
     {
-      result.sign = true;
-      result += 1;
+      *this += 1;
+      sign = true;      
       return result;
     }
 
@@ -851,6 +848,7 @@ public:
     }
   }
 
+  // Sign change operator
   BigInt operator-() const
   {
     BigInt result = *this;
