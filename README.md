@@ -56,7 +56,7 @@ sudo make install
 
 Optionally you can also run `make test` for the tests.
 
-This will build the library and install the header file and the shared library to the appropriate system directories.
+This will build the library and install the header file to the appropriate system directories.
 
 ## License
 
