@@ -942,22 +942,38 @@ public:
     return result;
   }
 
-  bool isPrime()
-  {
-    if ((*this) <= 1)
-    {
-      return false;
+  bool isPrime(int k = 20) const {
+    if (*this <= 1 || *this == 4) return false;
+    if (*this <= 3) return true;
+
+    BigInt d = *this - 1;
+    while (d % 2 == 0) {
+        d >>= 2;
     }
 
-    for (BigInt i = 2; i * i <= (*this); ++i)
-    {
-      if ((*this) % i == 0)
-      {
-        return false;
-      }
+    for (int i = 0; i < k; i++) {
+        if (!millerRabinTest(d)) return false;
     }
 
     return true;
+  }
+
+  bool millerRabinTest(BigInt d) const {
+    BigInt a = 2 + BigInt::generateRandom(1) % (*this - 4);
+    BigInt x = modPow(a, d, *this);
+
+    if (x == 1 || x == *this - 1) {
+        return true;
+    }
+
+    while (d != *this - 1) {
+        x = (x * x) % *this;
+        d <<= 2;
+        if (x == 1) return false;
+        if (x == *this - 1) return true;
+    }
+
+    return false;
   }
 
   static BigInt generatePrime(int bitLength)
