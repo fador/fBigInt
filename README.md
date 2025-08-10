@@ -7,14 +7,15 @@ The fBigInt library is a single header C++ library for arbitrary-precision integ
 The BigInt library provides the following features:
 
 - Support for integers of any size, limited only by the amount of memory available.
+- Fast primality testing using the Miller-Rabin algorithm.
 - Support for basic arithmetic operations, including addition, subtraction, multiplication, and division.
 - Support for comparison operations, including equality, inequality, less than, and greater than.
-- Support for conversion to and from strings and integers.
+- Support for conversion to and from decimal and binary strings.
 - Support for random number generation.
 - Support for modular arithmetic operations, including modular addition, subtraction, multiplication, and exponentiation.
 - Support for computing the greatest common divisor and the modular inverse of two integers.
 
-**Some features such as the bitwise operations do have problems and do not work properly**
+**Note:** The bitwise operations are known to have issues due to the library's internal base-10 representation.
 
 ## Usage
 
