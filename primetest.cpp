@@ -1,5 +1,6 @@
 #include "fbigint.hpp"
 
+void operator_tests();
 
 void testModInverse() {
   BigInt a = 3;
@@ -14,6 +15,8 @@ void testModInverse() {
 
 bool tests() {
     
+  operator_tests();
+
   BigInt a(123);
   BigInt b("123");
   assert(a == b);

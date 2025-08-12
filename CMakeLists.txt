@@ -11,6 +11,7 @@ endif()
 # Create a variable containing all your sources
 set(SOURCES
         primetest.cpp
+        operatortest.cpp
         )
 
 # Create a variable containing all your headers
