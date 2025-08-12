@@ -521,9 +521,9 @@ public:
     return result;
   }
 
-  BigInt operator||(const BigInt &rhs) const
+  bool operator||(const BigInt &rhs) const
   {
-    return BigInt(0); // placeholder
+    return (bool)*this || (bool)rhs;
   }
 
   BigInt operator-() const
