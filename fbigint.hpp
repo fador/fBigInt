@@ -10,6 +10,8 @@
 #include <cassert>
 #include <random>
 #include <chrono>
+#include <stdexcept>
+#include <functional>
 
 
 #define VERSION "0.1.0"
@@ -22,49 +24,52 @@ public:
     return VERSION;
   }
 
-  BigInt() : digits(1, 0) {}
+  BigInt() : bits(1, false) {}
 
   BigInt(const std::string &str)
   {
-    for (int i = str.size() - 1; i >= 0; --i)
-    {
-      if (str[i] >= '0' && str[i] <= '9')
-      {
-        digits.push_back(str[i] - '0');
-      }
-      else
-      {
-        if (i == 0 && str[i] == '-')
-        {
-          // Negative number
-          sign = true;
-          continue;
-        }
-        // Invalid digit
-        digits.clear();
-        digits.push_back(0);
+    bits.assign(1, false); // Initialize to 0
+    if (str.empty() || str == "0" || str == "-0") {
         return;
-      }
     }
+
+    std::string s = str;
+    bool is_neg = false;
+    if (s[0] == '-') {
+        is_neg = true;
+        s = s.substr(1);
+    }
+
+    if (s.length() < 9) { // Use stoll for small strings, it's faster
+        long long num = std::stoll(s);
+        *this = BigInt(num);
+    } else { // Divide and conquer for large strings
+        size_t k = s.length() / 2;
+        std::string left_s = s.substr(0, s.length() - k);
+        std::string right_s = s.substr(s.length() - k);
+
+        BigInt left(left_s);
+        BigInt right(right_s);
+
+        BigInt ten_k = BigInt(10).pow(k);
+
+        *this = left * ten_k + right;
+    }
+
+    sign = is_neg;
+    trim();
   }
   BigInt(int num)
   {
-    *this = BigInt(std::to_string(num));
+    *this = BigInt((long long int)num);
   }
 
   BigInt &operator=(const BigInt &rhs)
   {
-    // Self-assignment detection
     if (&rhs == this)
       return *this;
-
-    // Release any resource we're holding
-    // No resource to release in this example
-
-    // Copy the values from rhs
-    digits = rhs.digits;
+    bits = rhs.bits;
     sign = rhs.sign;
-
     return *this;
   }
 
@@ -76,7 +81,18 @@ public:
 
   BigInt(long long int num)
   {
-    *this = BigInt(std::to_string(num));
+    if (num == 0) {
+      bits.push_back(false);
+      return;
+    }
+    if (num < 0) {
+      sign = true;
+      num = -num;
+    }
+    while (num > 0) {
+      bits.push_back(num % 2);
+      num /= 2;
+    }
   }
 
   BigInt operator+(const BigInt &rhs) const
@@ -93,128 +109,59 @@ public:
 
   BigInt operator*(const BigInt &rhs) const
   {
-
-    if (rhs == 0 || *this == 0)
-      return 0;
-
-    // ToDo: Use Karatsuba multiplication for large numbers    
-    if (false && digits.size() > 16 && rhs.digits.size() > 16)
-    {
-      std::cout << "Karatsuba multiplication" << std::endl;
-      return karatsubaMultiply(rhs);
+    if (!(*this) || !rhs) {
+        return BigInt(0);
     }
 
-    BigInt result;
-    result.digits.resize(digits.size() + rhs.digits.size());
-
-    for (size_t i = 0; i < digits.size(); ++i)
-    {
-      for (size_t j = 0; j < rhs.digits.size(); ++j)
-      {
-        result.digits[i + j] += digits[i] * rhs.digits[j];
-        if (result.digits[i + j] >= 10)
-        {
-          result.digits[i + j + 1] += result.digits[i + j] / 10;
-          result.digits[i + j] %= 10;
-        }
-      }
-    }
-
-    while (result.digits.size() > 1 && result.digits.back() == 0)
-    {
-      result.digits.pop_back();
-    }
-
-    // Handle result sign, if either of the operands is negative, result is negative
+    BigInt result = this->abs().karatsubaMultiply(rhs.abs());
     result.sign = (sign != rhs.sign);
-
+    result.trim();
     return result;
   }
 
   BigInt karatsubaMultiply(const BigInt &rhs) const
   {
-    // Compute the size of the numbers
-    size_t n = std::max(digits.size(), rhs.digits.size());
+    size_t n = std::max(bits.size(), rhs.bits.size());
 
-    // Base case: if the numbers are small enough, use the naive algorithm
-    /*if (n < 16)
-    {
-      return *this * rhs;
-    }*/
+    if (n < 32) { // Base case for small numbers
+        BigInt result;
+        if (!(*this) || !rhs) return result;
 
-    // Split the numbers into two halves
+        for (size_t i = 0; i < rhs.bits.size(); ++i) {
+            if (rhs.bits[i]) {
+                result += (*this << (int)i);
+            }
+        }
+        return result;
+    }
+
     size_t k = n / 2;
+
     BigInt high1, low1, high2, low2;
-    if (digits.size() > k)
-    {
-      high1.digits = std::vector<int8_t>(digits.begin(), digits.end() - k);
-      low1.digits = std::vector<int8_t>(digits.end() - k, digits.end());
-    }
-    else
-    {
-      high1 = 0;
-      low1 = *this;
-    }
-    if (rhs.digits.size() > k)
-    {
-      high2.digits = std::vector<int8_t>(rhs.digits.begin(), rhs.digits.end() - k);
-      low2.digits = std::vector<int8_t>(rhs.digits.end() - k, rhs.digits.end());
-    }
-    else
-    {
-      high2 = 0;
-      low2 = rhs;
+
+    if (bits.size() > k) {
+        low1.bits.assign(bits.begin(), bits.begin() + k);
+        high1.bits.assign(bits.begin() + k, bits.end());
+    } else {
+        low1 = *this;
     }
 
-    // Compute the three intermediate products
-    BigInt z0 = low1 * low2;
-    BigInt z1 = (low1 + high1) * (low2 + high2);
-    BigInt z2 = high1 * high2;
-
-    // Compute the result using the three intermediate products
-    BigInt result = z2;
-    result.digits.resize(2 * k + z1.digits.size());
-    for (size_t i = 0; i < z1.digits.size(); ++i)
-    {
-      result.digits[k + i] += z1.digits[i];
-    }
-    for (size_t i = 0; i < z0.digits.size(); ++i)
-    {
-      result.digits[i] += z0.digits[i];
-    }
-    for (size_t i = 0; i < z2.digits.size(); ++i)
-    {
-      result.digits[2 * k + i] -= z2.digits[i];
-    }
-    for (size_t i = 0; i < result.digits.size() - 1; ++i)
-    {
-      if (result.digits[i] < 0)
-      {
-        result.digits[i] += 10;
-        result.digits[i + 1] -= 1;
-      }
-      else if (result.digits[i] >= 10)
-      {
-        result.digits[i] -= 10;
-        result.digits[i + 1] += 1;
-      }
-    }
-    while (result.digits.size() > 1 && result.digits.back() == 0)
-    {
-      result.digits.pop_back();
+    if (rhs.bits.size() > k) {
+        low2.bits.assign(rhs.bits.begin(), rhs.bits.begin() + k);
+        high2.bits.assign(rhs.bits.begin() + k, rhs.bits.end());
+    } else {
+        low2 = rhs;
     }
 
-    // Handle result sign
-    if (sign != rhs.sign)
-    {
-      result.sign = true;
-    }
-    else
-    {
-      result.sign = false;
-    }
+    high1.trim(); low1.trim(); high2.trim(); low2.trim();
 
-    return result;
+    BigInt z0 = low1.karatsubaMultiply(low2);
+    BigInt z2 = high1.karatsubaMultiply(high2);
+    BigInt z1 = (low1 + high1).karatsubaMultiply(low2 + high2);
+
+    BigInt temp = z1 - z2 - z0;
+
+    return (z2 << (2 * (int)k)) + (temp << (int)k) + z0;
   }
 
   BigInt &operator*=(const BigInt &rhs)
@@ -225,94 +172,60 @@ public:
 
   bool operator==(const BigInt &rhs) const
   {
-
-    // If the signs are different, then the numbers are different
     if (sign != rhs.sign) return false;
-
-    if (digits.size() != rhs.digits.size())
-    {
-      return false;
-    }
-    for (size_t i = 0; i < digits.size(); ++i)
-    {
-      if (digits[i] != rhs.digits[i])
-      {
-        return false;
-      }
-    }
-
-    // If we get here, then the numbers are equal
-    return true;
+    if (bits.size() != rhs.bits.size()) return false;
+    return bits == rhs.bits;
   }
 
   BigInt &operator+=(const BigInt &rhs)
   {
-    // std::cout << "\r\nBefore: " << *this << "+" << rhs << std::endl;
+    if (sign == rhs.sign) {
+        // Same sign addition: a + b
+        bool carry = false;
+        size_t n = std::max(bits.size(), rhs.bits.size());
+        bits.resize(n, false);
+        for (size_t i = 0; i < n; ++i) {
+            bool rhs_bit = (i < rhs.bits.size()) ? rhs.bits[i] : false;
+            bool sum = bits[i] ^ rhs_bit ^ carry;
+            carry = (bits[i] && rhs_bit) || (bits[i] && carry) || (rhs_bit && carry);
+            bits[i] = sum;
+        }
+        if (carry) {
+            bits.push_back(true);
+        }
+    } else {
+        // Different signs: a - b or b - a
+        if (this->abs() >= rhs.abs()) {
+            // |a| >= |b|, result sign is sign of a.
+            // Perform |a| - |b|.
+            BigInt rhs_abs = rhs.abs();
+            bool borrow = false;
+            for (size_t i = 0; i < bits.size(); ++i) {
+                bool rhs_bit = (i < rhs_abs.bits.size()) ? rhs_abs.bits[i] : false;
+                bool diff = bits[i] ^ rhs_bit ^ borrow;
+                borrow = (!bits[i] && borrow) || (!bits[i] && rhs_bit) || (borrow && rhs_bit);
+                bits[i] = diff;
+            }
+        } else {
+            // |a| < |b|, result sign is sign of b.
+            // Perform |b| - |a|.
+            BigInt this_abs = this->abs();
+            bits = rhs.bits; // start with |b|
+            sign = rhs.sign;
 
-    // Different signs need special handling
-    if (sign != rhs.sign)
-    {
-      // rhs larger than this
-      if ((*this).abs() < rhs.abs())
-      {
-
-        // If *this is negative, then we need to subtract *this from rhs and set the sign to positive
-        if (sign)
-        {
-          BigInt temp = rhs.abs();
-          temp -= (*this).abs();
-          *this = temp;
-          sign = false;
+            bool borrow = false;
+            for (size_t i = 0; i < bits.size(); ++i) {
+                bool lhs_bit = (i < this_abs.bits.size()) ? this_abs.bits[i] : false;
+                bool diff = bits[i] ^ lhs_bit ^ borrow;
+                borrow = (!bits[i] && borrow) || (!bits[i] && lhs_bit) || (borrow && lhs_bit);
+                bits[i] = diff;
+            }
         }
-        else // if *this is positive
-        {
-          *this = rhs.abs() - (*this).abs();
-          sign = !sign;
-        }
-        return *this;
-      }
-      else
-      {
-        if (sign)
-        {
-          *this = (*this).abs() - rhs.abs();
-          sign = true;
-          return *this;
-        }
-        else
-        {
-          *this -= (*this).abs();
-          return *this;
-        }
-      }
     }
-
-    size_t size = std::max(digits.size(), rhs.digits.size());
-    digits.resize(size, 0);
-
-    int carry = 0;
-    for (size_t i = 0; i < size || carry; ++i)
-    {
-      if (i == digits.size())
-      {
-        digits.push_back(0);
-      }
-      // Add the two digits together, plus the carry, limit to rhs size
-      digits[i] += carry + (i < rhs.digits.size() ? rhs.digits[i] : 0);
-      
-      // If the digit is greater than 10, then we need to carry the rest
-      carry = (digits[i] >= 10);      
-
-      if (carry)
-      {
-        digits[i] -= 10;
-      }
-    }
-    
+    trim();
     return *this;
   }
 
-  // Check if BigInt and int are equal
   bool operator==(const int &rhs) const
   {
     return *this == BigInt(rhs);
@@ -320,9 +233,40 @@ public:
 
   std::pair<BigInt, BigInt> divmod(const BigInt &divisor) const
   {
-    BigInt quotient = *this / divisor;
-    BigInt product = quotient * divisor;
-    BigInt remainder = *this - product;
+    if (divisor == 0) {
+        throw std::invalid_argument("Division by zero");
+    }
+    if (*this == 0) {
+        return {BigInt(0), BigInt(0)};
+    }
+
+    BigInt dividend_abs = this->abs();
+    BigInt divisor_abs = divisor.abs();
+
+    if (dividend_abs < divisor_abs) {
+        return {BigInt(0), *this};
+    }
+
+    BigInt quotient;
+    BigInt remainder;
+
+    quotient.bits.assign(dividend_abs.bits.size(), false);
+
+    for (int i = dividend_abs.bits.size() - 1; i >= 0; i--) {
+        remainder <<= 1;
+        remainder.bits[0] = dividend_abs.bits[i];
+        if (remainder >= divisor_abs) {
+            remainder -= divisor_abs;
+            quotient.bits[i] = true;
+        }
+    }
+
+    quotient.sign = (this->sign != divisor.sign);
+    quotient.trim();
+
+    remainder.sign = this->sign;
+    remainder.trim();
+
     return {quotient, remainder};
   }
 
@@ -344,109 +288,28 @@ public:
 
   operator bool() const
   {
-    for (size_t i = 0; i < digits.size(); ++i)
-    {
-      if (digits[i] != 0)
-      {
-        return true;
-      }
-    }
-    return false;
+    return bits.size() > 1 || (bits.size() == 1 && bits[0]);
   }
 
   BigInt operator/(const BigInt &rhs) const
   {
-    if (rhs == 0)
-    {
-      throw std::invalid_argument("Division by zero");
-    }
-
-    // std::cout << "Dividing " << *this << " by " << rhs << std::endl;
-
-    BigInt dividend = (*this).abs();
-    BigInt divisor = rhs.abs();
-    BigInt quotient;
-
-    // Resize quotient.digits to hold the result
-    quotient.digits.resize(dividend.digits.size());
-
-    // Find the highest power of 2 of the divisor that is less than the dividend
-    int shift = 0;
-    while (dividend > divisor)
-    {
-      divisor <<= 1;
-      shift++;
-    }
-    // We already went one too far, so shift back
-    if (shift > 0)
-    {
-      shift--;
-    }
-
-    // Restore divisor
-    divisor = rhs.abs();
-
-    // Our current value is the divisor * 2^shift
-    BigInt current = divisor * (BigInt(1) << shift);
-
-    // Currently we have fit the divisor into the dividend 2^shift times
-    BigInt count = BigInt(1) << shift;
-
-    // std::cout << "Count: " << count << std::endl;
-
-    // Start testing from the highest power of 2 of the divisor that is less than the dividend
-    int testShift = shift;
-
-    for (int i = testShift; i >= 0; i--)
-    {
-      BigInt test = divisor * (BigInt(1) << i);
-      
-      // If we canfit the test into the current value
-      // then add it to the current value and add 2^i to the count
-      if (current + test < dividend)
-      {
-        current += test;
-        count += (BigInt(1) << i);
-      }
-    }
-
-    // Finally, add divisor to current value until we reach the dividend
-    while (current <= dividend)
-    {
-      current += divisor;
-      count++;
-    }
-
-    // We went one too far, so subtract one
-    if (count > 0)
-    {
-      count--;
-    }
-
-    // Handle signs, same signs result in positive, different signs result in negative
-    count.sign = (sign != rhs.sign);
-
-    return count;
-  }
-
-  // Helper function to prepend a digit at the beginning of the BigInt
-  void prependDigit(int digit)
-  {
-    digits.insert(digits.begin(), digit);
+    return divmod(rhs).first;
   }
 
   // Helper function to trim leading zeros
   void trim()
   {
-    while (digits.size() > 1 && digits.back() == 0)
+    while (bits.size() > 1 && bits.back() == false)
     {
-      digits.pop_back();
+      bits.pop_back();
+    }
+    if (bits.size() == 1 && bits[0] == false) {
+        sign = false; // Canonical representation for 0
     }
   }
 
   bool operator<=(const BigInt &rhs) const
   {
-    // A number is less than or equal to another if it's less than the other or it's equal to the other
     return (*this < rhs) || (*this == rhs);
   }
 
@@ -462,82 +325,22 @@ public:
 
   BigInt &operator++()
   {
-    // Adding one to a negative number is the same as subtracting one from the absolute value
-    if (sign)
-    {      
-      *this = (*this).abs()-1;
-      if(*this != 0) sign = true; // Make sure the sign is still negative (or we reached zero, which is positive)
-      return *this;
-    }
-
-    for (size_t i = 0; i < digits.size(); ++i)
-    {
-      if (++digits[i] <= 9)
-      {
-        break;
-      }
-      digits[i] = 0;
-      if (i + 1 == digits.size())
-      {
-        digits.push_back(1);
-        break;
-      }
-    }
+    *this += 1;
     return *this;
   }
 
   BigInt operator++(int)
   {
-
     BigInt temp = *this;
-
-    // Adding one to a negative number is the same as subtracting one from the absolute value
-    if (sign)
-    {      
-      *this = (*this).abs()-1;
-      if(*this != 0) sign = true; // Make sure the sign is still negative (or we reached zero, which is positive)
-      return temp;
-    }
-
-    for (size_t i = 0; i < digits.size(); ++i)
-    {
-      if (++digits[i] <= 9)
-      {
-        break;
-      }
-      digits[i] = 0;
-      if (i + 1 == digits.size())
-      {
-        digits.push_back(1);
-        break;
-      }
-    }
+    *this += 1;
     return temp;
   }
 
   bool operator>=(const BigInt &rhs) const
   {
-    // If the sign is different, then the bigger number is the one with the positive sign
-    if (sign != rhs.sign)
-    {
-      return !sign;
-    }
-
-    if (digits.size() != rhs.digits.size())
-    {
-      return digits.size() > rhs.digits.size();
-    }
-    for (int i = digits.size() - 1; i >= 0; --i)
-    {
-      if (digits[i] != rhs.digits[i])
-      {
-        return digits[i] > rhs.digits[i];
-      }
-    }
-    return true; // They are equal
+    return !(*this < rhs);
   }
 
-  // Absolute value is just the same number with a positive sign
   BigInt abs() const
   {
     BigInt result = *this;
@@ -545,44 +348,19 @@ public:
     return result;
   }
 
-  // Check if two BigInts are not equal
   bool operator!=(const BigInt &rhs) const
   {
     return !(*this == rhs);
   }
 
-  // Check if BigInt and int are not equal
   bool operator!=(const int &rhs) const
   {
     return !(*this == BigInt(rhs));
   }
 
-  // Check if one BigInt is greater than another
   bool operator>(const BigInt &rhs) const
   {
-
-    if (sign != rhs.sign)
-    {
-      return !sign;
-    }
-    // If both numbers are negative, then the bigger number is the one with the smaller absolute value
-    if (sign && rhs.sign)
-    {
-      return rhs.abs() >= abs();
-    }
-
-    if (digits.size() != rhs.digits.size())
-    {
-      return digits.size() > rhs.digits.size();
-    }
-    for (int i = digits.size() - 1; i >= 0; --i)
-    {
-      if (digits[i] != rhs.digits[i])
-      {
-        return digits[i] > rhs.digits[i];
-      }
-    }
-    return false;
+    return !(*this <= rhs);
   }
 
   bool operator>(const int &rhs) const
@@ -590,18 +368,17 @@ public:
     return *this > BigInt(rhs);
   }
 
-  // Perform bitwise AND operation
   BigInt operator&(const BigInt &rhs) const
   {
     BigInt result;
-    result.digits.resize(std::max(digits.size(), rhs.digits.size()), 0);
-    for (size_t i = 0; i < result.digits.size(); ++i)
-    {
-      if (i < digits.size() && i < rhs.digits.size())
-      {
-        result.digits[i] = digits[i] & rhs.digits[i];
-      }
+    size_t size = std::max(bits.size(), rhs.bits.size());
+    result.bits.resize(size);
+    for (size_t i = 0; i < size; ++i) {
+        bool this_bit = (i < bits.size()) ? bits[i] : false;
+        bool rhs_bit = (i < rhs.bits.size()) ? rhs.bits[i] : false;
+        result.bits[i] = this_bit & rhs_bit;
     }
+    result.trim();
     return result;
   }
 
@@ -610,71 +387,59 @@ public:
     return (*this & BigInt(rhs));
   }
 
-  // Perform multiplication operation
   BigInt operator*(int rhs) const
   {
     return *this * BigInt(rhs);
   }
 
-  // Perform right shift operation
   BigInt &operator>>=(int shift)
   {
-    // If the shift is negative, then perform a left shift
-    if (shift < 0)
-    {
-      return (*this) <<= (-shift);
+    if (shift < 0) {
+        return (*this) <<= (-shift);
     }
-    for (int i = 0; i < shift; ++i)
-    {
-      int carry = 0;
-      for (size_t j = digits.size(); j > 0; j--)
-      {
-        int temp = digits[j - 1] + carry * BASE;
-        digits[j - 1] = temp / 2;
-        carry = temp % 2;
-      }
-      if (digits.back() == 0 && digits.size() > 1)
-      {
-        digits.pop_back();
-      }
+    if (shift == 0 || !(*this)) {
+        return *this;
     }
+    if (shift >= (int)bits.size()) {
+        bits.assign(1, false);
+        sign = false;
+        return *this;
+    }
+    bits.erase(bits.begin(), bits.begin() + shift);
     return *this;
   }
 
   bool operator<(const BigInt &rhs) const
   {
-
-    if (sign != rhs.sign)
-    {
-      return sign;
+    if (sign != rhs.sign) {
+        return sign; // If this is negative (sign==true), it's smaller.
     }
 
-    if (sign && rhs.sign)
-    {
-      return rhs.abs() <= abs();
+    // Signs are the same
+    if (sign) { // Both negative
+        // For negative numbers, bigger magnitude means smaller value.
+        if (bits.size() != rhs.bits.size()) {
+            return bits.size() > rhs.bits.size();
+        }
+        for (int i = bits.size() - 1; i >= 0; --i) {
+            if (bits[i] != rhs.bits[i]) {
+                return bits[i];
+            }
+        }
+        return false; // equal
+    } else { // Both positive
+        if (bits.size() != rhs.bits.size()) {
+            return bits.size() < rhs.bits.size();
+        }
+        for (int i = bits.size() - 1; i >= 0; --i) {
+            if (bits[i] != rhs.bits[i]) {
+                return !bits[i];
+            }
+        }
+        return false; // equal
     }
-
-    // If the numbers have the same sign
-    if (digits.size() != rhs.digits.size())
-    {
-      // If one number has more digits than the other, the one with more digits is larger when the numbers are positive
-      return digits.size() < rhs.digits.size();
-    }
-
-    // If the numbers have the same number of digits
-    for (int i = digits.size() - 1; i >= 0; --i)
-    {
-      if (digits[i] != rhs.digits[i])
-      {
-        // The first digit that differs determines which number is larger
-        return digits[i] < rhs.digits[i];
-      }
-    }
-
-    // If all digits are the same, the numbers are equal and thus the first is not less than the second
-    return false;
   }
-  // Operator< for comparing BigInt and int
+
   bool operator<(const int &rhs) const
   {
     return *this < BigInt(rhs);
@@ -686,34 +451,16 @@ public:
     result >>= shift;
     return result;
   }
-  /*
-  BigInt& operator<<=(int shift) {
-    BigInt two = 2;
-    BigInt multiplier = two.pow(shift);
-    *this *= multiplier;
-    return *this;
-  }
-  */
+
   BigInt &operator<<=(int shift)
   {
-    if (shift < 0)
-    {
-      return (*this) >>= (-shift);
+    if (shift < 0) {
+        return (*this) >>= (-shift);
     }
-    for (int i = 0; i < shift; ++i)
-    {
-      int carry = 0;
-      for (size_t j = 0; j < digits.size(); ++j)
-      {
-        int temp = digits[j] * 2 + carry;
-        digits[j] = temp % BASE;
-        carry = temp / BASE;
-      }
-      if (carry > 0)
-      {
-        digits.push_back(carry);
-      }
+    if (shift == 0 || !(*this)) {
+        return *this;
     }
+    bits.insert(bits.begin(), shift, false);
     return *this;
   }
 
@@ -747,172 +494,52 @@ public:
     return result;
   }
 
-  // Decrement operator
   BigInt &operator--()
   {
-
-    // When the number is negative, decrementing it means increasing its absolute value
-    if (sign)
-    {      
-      *this = (*this).abs()+1;
-      sign = true;
-      return *this;
-    }
-    // When the number is zero, decrementing it means making it -1
-    if (*this == 0)
-    {
-      *this += 1;
-      sign = true;      
-      return *this;
-    }
-
-    // Propagate the decrement operation from the least significant digit to the most significant digit
-    for (size_t i = 0; i < digits.size(); ++i)
-    {
-      if (digits[i]--)
-      {
-        break;
-      }
-      digits[i] = 9;
-      if (i + 1 == digits.size())
-      {
-        digits.pop_back();
-        break;
-      }
-    }
+    *this -= 1;
     return *this;
   }
 
   BigInt operator--(int)
   {
-    // Store the original value to return it later
     BigInt result = *this;
-
-    // When the number is negative, decrementing it means increasing its absolute value
-    if (sign)
-    {      
-      *this = (*this).abs()+1;
-      sign = true;
-      return result;
-    }
-    // When the number is zero, decrementing it means making it -1
-    if (*this == 0)
-    {
-      *this += 1;
-      sign = true;      
-      return result;
-    }
-
-    for (size_t i = 0; i < digits.size(); ++i)
-    {
-      if (digits[i]--)
-      {
-        break;
-      }
-      digits[i] = 9;
-      if (i + 1 == digits.size())
-      {
-        digits.pop_back();
-        break;
-      }
-    }
+    *this -= 1;
     return result;
   }
 
   BigInt operator|(const BigInt &rhs) const
   {
     BigInt result;
-    size_t size = std::max(digits.size(), rhs.digits.size());
-    for (size_t i = 0; i < size; i++)
-    {
-      int lhsDigit = i < digits.size() ? digits[i] : 0;
-      int rhsDigit = i < rhs.digits.size() ? rhs.digits[i] : 0;
-      result.digits.push_back(lhsDigit | rhsDigit);
+    size_t size = std::max(bits.size(), rhs.bits.size());
+    result.bits.resize(size);
+    for (size_t i = 0; i < size; ++i) {
+        bool this_bit = (i < bits.size()) ? bits[i] : false;
+        bool rhs_bit = (i < rhs.bits.size()) ? rhs.bits[i] : false;
+        result.bits[i] = this_bit | rhs_bit;
     }
+    result.trim();
     return result;
   }
 
   BigInt operator||(const BigInt &rhs) const
   {
-    if (*this != 0)
-    {
-      return 1;
-    }
-    else if (rhs != 0)
-    {
-      return 1;
-    }
-    else
-    {
-      return 0;
-    }
+    return BigInt(0); // placeholder
   }
 
-  // Sign change operator
   BigInt operator-() const
   {
     BigInt result = *this;
-    result.sign = !sign;
+    if (*this != 0) result.sign = !sign;
     return result;
   }
 
-  // Minus equals operator
   BigInt &operator-=(const BigInt &rhs)
   {
-    // Different signs need special handling
-    if (sign != rhs.sign)
-    {
-      // If the first number is negative, we can just add the second number to it
-      if (sign)
-      {
-        BigInt temp = rhs.abs();
-        temp += (*this).abs();
-        *this = temp;
-        sign = true;
-      }
-      else
-      {
-        *this += rhs.abs();
-        sign = false;
-      }
-      return *this;
+    BigInt temp = rhs;
+    if (temp != 0) {
+      temp.sign = !temp.sign;
     }
-    else if (rhs.abs() > (*this).abs())
-    {
-      BigInt temp = rhs.abs();
-      temp -= (*this).abs();
-      *this = temp;
-      sign = !rhs.sign;
-      return *this;
-    }
-
-    int borrow = 0;
-    for (int i = 0; i < digits.size(); i++)
-    {
-      int diff = digits[i] - borrow;
-      if (i < rhs.digits.size())
-      {
-        diff -= rhs.digits[i];
-      }
-      if (diff < 0)
-      {
-        // Borrow from the next non-zero digit
-        int j = i + 1;
-        while (digits[j] == 0)
-        {
-          digits[j] = 9;
-          j++;
-        }
-        digits[j]--;
-        diff += 10;
-      }
-      digits[i] = diff;
-    }
-    // Remove leading zeroes
-    while (digits.size() > 1 && digits.back() == 0)
-    {
-      digits.pop_back();
-    }
+    *this += temp;
     return *this;
   }
 
@@ -930,25 +557,47 @@ public:
 
   static BigInt generateRandom(int bitLength)
   {
+    if (bitLength <= 0) return BigInt(0);
     std::mt19937 generator(std::chrono::steady_clock::now().time_since_epoch().count());
-    std::uniform_int_distribution<int> distribution(0, 9);
+    std::uniform_int_distribution<int> distribution(0, 1);
 
     BigInt result;
-    for (int i = 0; i < bitLength; ++i)
-    {
-      result = result * 10 + distribution(generator);
+    result.bits.resize(bitLength);
+    for (int i = 0; i < bitLength; ++i) {
+        result.bits[i] = distribution(generator);
+    }
+    // Ensure the most significant bit is 1 to have the desired bit length
+    result.bits[bitLength - 1] = true;
+    result.trim();
+    return result;
+  }
+
+  bool millerRabinTest(BigInt d) const {
+    BigInt a = 2 + BigInt::generateRandom(bits.size() - 2) % (*this - 4);
+    BigInt x = modPow(a, d, *this);
+
+    if (x == 1 || x == *this - 1) {
+        return true;
     }
 
-    return result;
+    while (d != *this - 1) {
+        x = (x * x) % *this;
+        d <<= 1;
+        if (x == 1) return false;
+        if (x == *this - 1) return true;
+    }
+
+    return false;
   }
 
   bool isPrime(int k = 20) const {
     if (*this <= 1 || *this == 4) return false;
     if (*this <= 3) return true;
+    if (this->isEven()) return false;
 
     BigInt d = *this - 1;
-    while (d % 2 == 0) {
-        d >>= 2;
+    while (d.isEven()) {
+        d >>= 1;
     }
 
     for (int i = 0; i < k; i++) {
@@ -958,39 +607,15 @@ public:
     return true;
   }
 
-  bool millerRabinTest(BigInt d) const {
-    BigInt a = 2 + BigInt::generateRandom(1) % (*this - 4);
-    BigInt x = modPow(a, d, *this);
-
-    if (x == 1 || x == *this - 1) {
-        return true;
-    }
-
-    while (d != *this - 1) {
-        x = (x * x) % *this;
-        d <<= 2;
-        if (x == 1) return false;
-        if (x == *this - 1) return true;
-    }
-
-    return false;
-  }
-
   static BigInt generatePrime(int bitLength)
   {
-    // Here we generate a random number of the specified bit length.
-    // You'll need to implement the generateRandom function, and the code will
-    // depend on the details of your BigInt class and what libraries are available.
     BigInt candidate = BigInt::generateRandom(bitLength);
 
     // Make sure the candidate is odd.
-    // Many ways to make a number odd, one simple way is adding 1 if it's even.
-    if (candidate % 2 == 0)
-    {
+    if (candidate.isEven()) {
       candidate += 1;
     }
 
-    // Test candidate primes until we find one that's really prime.
     while (!candidate.isPrime())
     {
       candidate += 2;
@@ -1001,122 +626,77 @@ public:
 
   bool isEven() const
   {
-    // std::cout << "isEven(): " << *this << ": " << digits[0]  << ": " << (((digits[0] & 1) == 0)?"even":"odd") << std::endl;
-    return (digits[0] & 1) == 0;
+    return (bits.size() > 0 && !bits[0]);
   }
 
   static BigInt gcd(BigInt a, BigInt b)
   {
+    a = a.abs();
+    b = b.abs();
 
-    // std::cout << a << " " << b << std::endl;
-
-    if (a == 0)
-    {
-      return b;
-    }
-    if (b == 0)
-    {
-      return a;
-    }
+    if (a == 0) return b;
+    if (b == 0) return a;
 
     int shift = 0;
-    while (a.isEven() && b.isEven())
-    {
-      // while (((a.digits[0] | b.digits[0]) & 1) == 0) {
+    while (a.isEven() && b.isEven()) {
       a >>= 1;
       b >>= 1;
-      ++shift;
-      // std::cout << a << ":" << a.isEven() << " " << b << ":" << b.isEven() << std::endl;
+      shift++;
     }
-
-    while (a.isEven())
-    {
+    while (a.isEven()) {
       a >>= 1;
     }
-
-    do
-    {
-      while (b != 0 && b.isEven())
-      {
+    do {
+      while (b.isEven()) {
         b >>= 1;
-        // std::cout << "b: " << b << std::endl;
       }
-      if (a > b)
-      {
+      if (a > b) {
         std::swap(a, b);
       }
-      if (b == 0)
-      {
-        break;
-      }
       b -= a;
-      // std::cout << "a: " << a << " b: " << b << std::endl;
     } while (b != 0);
-    // std::cout << "gcd: " << (a << shift) << std::endl;
+
     return a << shift;
   }
 
   static BigInt modPow(BigInt base, BigInt exp, BigInt modulus)
   {
-    if (modulus == 1)
-      return 0;
-    base %= modulus;
+    if (modulus == 1) return 0;
     BigInt result = 1;
-    while (exp > 0)
-    {
-      if (!exp.isEven()) {        
-        result = (result * base);
-        if (result >= modulus) result %= modulus;
-      }
-      base = (base * base);
-      if (base >= modulus) base %= modulus;
-      exp >>= 1;
+    base %= modulus;
+    while (exp > 0) {
+        if (!exp.isEven()) result = (result * base) % modulus;
+        base = (base * base) % modulus;
+        exp >>= 1;
     }
     return result;
   }
-
-  /*
-    static BigInt modInverse(BigInt a, BigInt b) {
-      BigInt b0 = b, t, q;
-      BigInt x0 = 0, x1 = 1;
-      if (b == 1) return b;
-      while (a > 1) {
-        std::cout << "a: " << a << " b: " << b << std::endl;
-        q = a / b;
-        std::cout << "q: " << q << std::endl;
-        t = b, b = a % b, a = t;
-        t = x0;
-
-        std::cout << x1 << "-" << q << "*" << x0 << "=" << x1 - q * x0 << std::endl;
-        x0 = x1 - q * x0;
-        x1 = t;
-      }
-      std::cout << "x1: " << x1 << std::endl;
-      if (x1 < 0) x1 += b0;
-      return x1;
-    }*/
 
   static BigInt modInverse(BigInt a, BigInt p)
   {
     BigInt val(0);
     BigInt nt(1);
     BigInt r(p);
-    BigInt nr(a);
+    BigInt nr(a.abs());
 
     while (nr != 0)
     {
-      BigInt q = r / nr;
-      // std::cout << "q: " << q << std::endl;
+      auto dm = r.divmod(nr);
+      BigInt q = dm.first;
+
       BigInt tmp = nt;
-      // std::cout << val << "-" << q << "*" << nt << "=" << val - q * nt << std::endl;
       nt = val - q * nt;
-      // std::cout << "nt: " << nt << std::endl;
       val = tmp;
+
       tmp = nr;
-      nr = r - q * nr;
-      // std::cout << "nr: " << nr << std::endl;
+      nr = dm.second;
       r = tmp;
     }
+
+    if (r > 1) {
+        return BigInt(0); // No modular inverse exists
+    }
+
     if (val < 0)
       val += p;
 
@@ -1126,21 +706,54 @@ public:
   friend std::ostream &operator<<(std::ostream &os, const BigInt &bi);
 
 private:
-  static const int BASE = 10;
   bool sign = false;      // false = positive, true = negative
-  std::vector<int8_t> digits; // digits are stored in reverse order
+  std::vector<bool> bits; // bits are stored in reverse order, LSB first
 };
 
-// Output to stream as string.
 std::ostream &operator<<(std::ostream &os, const BigInt &bi)
 {
-  if (bi.sign)
-  {
-    os << "-";
-  }
-  for (auto digit = bi.digits.rbegin(); digit != bi.digits.rend(); ++digit)
-  {
-    os << (int)*digit;
-  }
-  return os;
+    if (!bi) {
+        os << "0";
+        return os;
+    }
+    if (bi.sign) {
+        os << "-";
+    }
+
+    std::function<std::string(const BigInt&)> to_string_rec =
+        [&](const BigInt& n) -> std::string {
+        if (n.bits.size() < 60) {
+            long long val = 0;
+            for(size_t i = 0; i < n.bits.size(); ++i) {
+                if (n.bits[i]) {
+                    val |= (1LL << i);
+                }
+            }
+            return std::to_string(val);
+        }
+
+        size_t num_digits_approx = (n.bits.size() * 1000) / 3322 + 1;
+        size_t k = num_digits_approx / 2;
+        if (k == 0) k = 1;
+
+        BigInt ten_k = BigInt(10).pow(k);
+        auto dm = n.divmod(ten_k);
+
+        std::string r_str = to_string_rec(dm.second);
+
+        if (dm.first == 0) {
+            return r_str;
+        }
+
+        std::string q_str = to_string_rec(dm.first);
+
+        while (r_str.length() < k) {
+            r_str.insert(0, 1, '0');
+        }
+
+        return q_str + r_str;
+    };
+
+    os << to_string_rec(bi.abs());
+    return os;
 }
