@@ -1,3 +1,4 @@
+#pragma once
 /*
   Permissive BSD 2-Clause License - see LICENSE file for details
   by Marko 'Fador' Viitanen 2023
@@ -117,6 +118,26 @@ public:
     result.sign = (sign != rhs.sign);
     result.trim();
     return result;
+  }
+
+  BigInt operator^(const BigInt &rhs) const
+  {
+    BigInt result;
+    size_t size = std::max(bits.size(), rhs.bits.size());
+    result.bits.resize(size);
+    for (size_t i = 0; i < size; ++i) {
+        bool this_bit = (i < bits.size()) ? bits[i] : false;
+        bool rhs_bit = (i < rhs.bits.size()) ? rhs.bits[i] : false;
+        result.bits[i] = this_bit ^ rhs_bit;
+    }
+    result.trim();
+    return result;
+  }
+
+  BigInt &operator/=(const BigInt &rhs)
+  {
+    *this = *this / rhs;
+    return *this;
   }
 
   BigInt karatsubaMultiply(const BigInt &rhs) const
@@ -710,7 +731,7 @@ private:
   std::vector<bool> bits; // bits are stored in reverse order, LSB first
 };
 
-std::ostream &operator<<(std::ostream &os, const BigInt &bi)
+inline std::ostream &operator<<(std::ostream &os, const BigInt &bi)
 {
     if (!bi) {
         os << "0";
